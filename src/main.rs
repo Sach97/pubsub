@@ -1,5 +1,5 @@
 use crossbeam::{
-    channel::{Iter, Receiver, Sender},
+    channel::{IntoIter, Receiver, Sender},
     unbounded,
 };
 
@@ -32,17 +32,19 @@ impl Topic {
             .expect("error sending message to topic");
     }
 
-    fn listen(&mut self) -> Iter<'_, Message> {
-        self.receiver.iter()
+    fn listen(self) -> IntoIter<Message> {
+        self.receiver.into_iter()
     }
 }
 
-impl Drop for Topic {
-    fn drop(&mut self) {
-        drop(self.sender.to_owned());
-    }
-}
+//Hmm bad to comment this as we can't drop topic anymore
+// impl Drop for Topic {
+//     fn drop(&mut self) {
+//         drop(self.sender.to_owned());
+//     }
+// }
 
+#[derive(Clone)]
 pub struct Message {
     body: String,
 }
@@ -56,7 +58,7 @@ impl fmt::Display for Message {
 impl Message {
     fn new(body: &str) -> Message {
         Message {
-            body: body.to_owned(),
+            body: String::from(body),
         }
     }
 }
@@ -79,11 +81,12 @@ pub trait PubSubTrait {
     fn publish(&mut self, channel: &str, body: &str);
     fn get_topics(&mut self) -> Vec<String>;
     fn topics(&mut self) -> Topics;
-    //fn listen(&mut self,channel: &str)-> Iter<'_, Message>;
+    fn listen(&mut self, channel: &str) -> IntoIter<Message>;
 }
 
 //https://www.reddit.com/r/rust/comments/ay1t2i/cant_get_shared_hashmap_across_threads_to_work/
 impl PubSubTrait for PubSub {
+    // vec::IntoIter,
     fn get_topics(&mut self) -> Vec<String> {
         self.topics()
             .keys()
@@ -105,13 +108,14 @@ impl PubSubTrait for PubSub {
         let (s, r) = unbounded();
         //loop {
         //https://stackoverflow.com/questions/39045636/how-do-i-have-one-thread-that-deletes-from-a-hashmap-and-another-that-inserts
-        self.topics().insert(channel.to_owned(), Topic::new(&s, &r)); // lock the mutex, insert a value, unlock
-                                                                      // }
+        self.topics()
+            .insert(String::from(channel), Topic::new(&s, &r)); // lock the mutex, insert a value, unlock
+                                                                // }
     }
     fn unsubscribe(&mut self, channel: &str) {
         //TODO: stop the thread we launched with subscribe method with join handle. Hmm but the drop sender should drop the thread but we'll see
         //loop {
-        drop(self.topics().get_mut(channel)); //drop sender
+        drop(self.topics().get(channel)); //drop sender
         self.topics().remove(channel);
         //}
     }
@@ -122,20 +126,18 @@ impl PubSubTrait for PubSub {
         //}
     }
 
-    // fn listen(&mut self,channel: &str)-> Iter<'_, Message> {
-    //  self.topics().get_mut(channel).map(|topic| topic.listen()).unwrap()
-    // }
+    fn listen(&mut self, channel: &str) -> IntoIter<Message> {
+        self.topics().get(channel).clone().listen()
+    }
 }
 
 fn main() {
     let mut pubsub = PubSub::new();
-    pubsub.subscribe("mytopic");
+    pubsub.subscribe("firsttopic");
     let topics = pubsub.get_topics();
     println!("topics : {:?}", topics);
-    pubsub.publish("mytopic", "hello");
-    let mut topics = pubsub.topics();
-    let messages = topics.get_mut("mytopic").unwrap().listen();
-    for message in messages {
+    pubsub.publish("firsttopic", "hello from firsttopic");
+    for message in pubsub.listen("firsttopic") {
         println!("{}", message);
     }
 }
