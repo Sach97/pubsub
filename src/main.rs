@@ -26,7 +26,7 @@ impl Topic {
             receiver: receiver.to_owned(),
         }
     }
-    fn send(&mut self, body: &str) {
+    fn send_message(&mut self, body: &str) {
         self.sender
             .send(Message::new(body))
             .expect("error sending message to topic");
@@ -63,6 +63,15 @@ impl Message {
 
 type Topics<'a> = MutexGuard<'a, HashMap<String, Topic>>;
 
+trait TopicsMethods {
+    fn get(&mut self, channel: &str) -> &mut Topic;
+}
+
+impl<'a> TopicsMethods for Topics<'a> {
+    fn get(&mut self, channel: &str) -> &mut Topic {
+        return self.get_mut(channel).unwrap();
+    }
+}
 pub trait PubSubTrait {
     fn new() -> PubSub;
     fn subscribe(&mut self, channel: &str);
@@ -109,7 +118,7 @@ impl PubSubTrait for PubSub {
 
     fn publish(&mut self, channel: &str, body: &str) {
         // loop {
-        self.topics().get_mut(channel).unwrap().send(body);
+        self.topics().get(channel).send_message(body);
         //}
     }
 
