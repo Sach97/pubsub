@@ -7,10 +7,18 @@ use std::{
     collections::HashMap,
     fmt,
     sync::{Arc, Mutex, MutexGuard},
+    thread,
 };
 
+#[derive(Clone)]
 pub struct PubSub {
     topics: Arc<Mutex<HashMap<String, Topic>>>,
+}
+
+impl PubSub {
+    fn from(topics: Arc<Mutex<HashMap<String, Topic>>>) -> PubSub {
+        PubSub { topics: topics }
+    }
 }
 
 #[derive(Clone)]
@@ -66,22 +74,22 @@ impl Message {
 type Topics<'a> = MutexGuard<'a, HashMap<String, Topic>>;
 
 trait TopicsMethods {
-    fn get(&mut self, channel: &str) -> &mut Topic;
+    fn get(&mut self, topic: &str) -> &mut Topic;
 }
 
 impl<'a> TopicsMethods for Topics<'a> {
-    fn get(&mut self, channel: &str) -> &mut Topic {
-        return self.get_mut(channel).unwrap();
+    fn get(&mut self, topic: &str) -> &mut Topic {
+        return self.get_mut(topic).unwrap();
     }
 }
 pub trait PubSubTrait {
     fn new() -> PubSub;
-    fn subscribe(&mut self, channel: &str);
-    fn unsubscribe(&mut self, channel: &str);
-    fn publish(&mut self, channel: &str, body: &str);
+    fn subscribe(&mut self, topic: &str);
+    fn unsubscribe(&mut self, topic: &str);
+    fn publish(&mut self, topic: &str, body: &str);
     fn get_topics(&mut self) -> Vec<String>;
     fn topics(&mut self) -> Topics;
-    fn listen(&mut self, channel: &str) -> IntoIter<Message>;
+    fn listen(&mut self, topic: &str) -> IntoIter<Message>;
 }
 
 //https://www.reddit.com/r/rust/comments/ay1t2i/cant_get_shared_hashmap_across_threads_to_work/
@@ -103,41 +111,54 @@ impl PubSubTrait for PubSub {
         PubSub { topics: topics }
     }
 
-    fn subscribe(&mut self, channel: &str) {
+    fn subscribe(&mut self, topic: &str) {
         //TODO: launch a new thread
         let (s, r) = unbounded();
         //loop {
         //https://stackoverflow.com/questions/39045636/how-do-i-have-one-thread-that-deletes-from-a-hashmap-and-another-that-inserts
         self.topics()
-            .insert(String::from(channel), Topic::new(&s, &r)); // lock the mutex, insert a value, unlock
-                                                                // }
+            .insert(String::from(topic), Topic::new(&s, &r)); // lock the mutex, insert a value, unlock
+                                                              // }
     }
-    fn unsubscribe(&mut self, channel: &str) {
+    fn unsubscribe(&mut self, topic: &str) {
         //TODO: stop the thread we launched with subscribe method with join handle. Hmm but the drop sender should drop the thread but we'll see
         //loop {
-        drop(self.topics().get(channel)); //drop sender
-        self.topics().remove(channel);
+        drop(self.topics().get(topic)); //drop sender
+        self.topics().remove(topic);
         //}
     }
 
-    fn publish(&mut self, channel: &str, body: &str) {
+    fn publish(&mut self, topic: &str, body: &str) {
         // loop {
-        self.topics().get(channel).send_message(body);
+        self.topics().get(topic).send_message(body);
         //}
     }
 
-    fn listen(&mut self, channel: &str) -> IntoIter<Message> {
-        self.topics().get(channel).clone().listen()
+    fn listen(&mut self, topic: &str) -> IntoIter<Message> {
+        self.topics().get(topic).clone().listen()
     }
 }
 
 fn main() {
     let mut pubsub = PubSub::new();
     pubsub.subscribe("firsttopic");
+    pubsub.subscribe("secondtopic");
     let topics = pubsub.get_topics();
-    println!("topics : {:?}", topics);
     pubsub.publish("firsttopic", "hello from firsttopic");
-    for message in pubsub.listen("firsttopic") {
-        println!("{}", message);
+    pubsub.publish("secondtopic", "hello from secondtopic");
+    println!("topics : {:?}", topics);
+    let mut children = vec![];
+    for topic in pubsub.get_topics() {
+        let pubsub = Arc::clone(&pubsub.topics);
+        children.push(thread::spawn(move || {
+            let mut pubsub = PubSub::from(pubsub);
+            for message in pubsub.listen(topic.as_str()) {
+                println!("{}", message);
+            }
+        }));
+    }
+
+    for child in children {
+        let _ = child.join();
     }
 }
