@@ -13,7 +13,7 @@ pub struct PubSub {
     topics: Arc<Mutex<HashMap<String, Topic>>>,
 }
 
-#[allow(dead_code)]
+#[derive(Clone)]
 pub struct Topic {
     sender: Sender<Message>,
     receiver: Receiver<Message>,
@@ -61,19 +61,18 @@ impl Message {
     }
 }
 
+type Topics<'a> = MutexGuard<'a, HashMap<String, Topic>>;
+
 pub trait PubSubTrait {
     fn new() -> PubSub;
     fn subscribe(&mut self, channel: &str);
     fn unsubscribe(&mut self, channel: &str);
     fn publish(&mut self, channel: &str, body: &str);
     fn get_topics(&mut self) -> Vec<String>;
-    fn topics(
-        &mut self,
-    ) -> std::sync::MutexGuard<'_, std::collections::HashMap<std::string::String, Topic>>;
-    //fn listen(&self,channel: &str)-> Iter<'_, Message>;
+    fn topics(&mut self) -> Topics;
+    //fn listen(&mut self,channel: &str)-> Iter<'_, Message>;
 }
 
-//type Topics = MutexGuard<'_, HashMap<String, Topic>>;
 //https://www.reddit.com/r/rust/comments/ay1t2i/cant_get_shared_hashmap_across_threads_to_work/
 impl PubSubTrait for PubSub {
     fn get_topics(&mut self) -> Vec<String> {
@@ -83,7 +82,7 @@ impl PubSubTrait for PubSub {
             .collect::<Vec<String>>()
     }
 
-    fn topics(&mut self) -> MutexGuard<'_, HashMap<String, Topic>> {
+    fn topics(&mut self) -> Topics {
         return self.topics.lock().unwrap();
     }
 
@@ -114,9 +113,8 @@ impl PubSubTrait for PubSub {
         //}
     }
 
-    // fn listen(&self,channel: &str)-> Iter<'_, Message> {
-    //        let mut topics = self.topics();
-    //         topics.get_mut(channel).unwrap().listen()
+    // fn listen(&mut self,channel: &str)-> Iter<'_, Message> {
+    //  self.topics().get_mut(channel).map(|topic| topic.listen()).unwrap()
     // }
 }
 
@@ -126,8 +124,8 @@ fn main() {
     let topics = pubsub.get_topics();
     println!("topics : {:?}", topics);
     pubsub.publish("mytopic", "hello");
-    let mut mutex = pubsub.topics.lock().unwrap();
-    let messages = mutex.get_mut("mytopic").unwrap().listen();
+    let mut topics = pubsub.topics();
+    let messages = topics.get_mut("mytopic").unwrap().listen();
     for message in messages {
         println!("{}", message);
     }
